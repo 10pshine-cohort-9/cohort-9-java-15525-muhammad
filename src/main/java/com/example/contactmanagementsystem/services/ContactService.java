@@ -22,6 +22,21 @@ public class ContactService {
 
     public Contact createContact(Contact contact, User user){
         contact.setUser(user);
+
+        if (contact.getEmails() != null) {
+            List<Email> emails = new ArrayList<>(contact.getEmails());
+            for (Email email : emails) {
+                contact.addEmail(email);
+            }
+        }
+
+        if (contact.getPhones() != null) {
+            List<Phone> phones = new ArrayList<>(contact.getPhones());
+            for (Phone phone : phones) {
+                contact.addPhone(phone);
+            }
+        }
+
         try {
             return contactRepository.save(contact);
         } catch (DataIntegrityViolationException e) {
