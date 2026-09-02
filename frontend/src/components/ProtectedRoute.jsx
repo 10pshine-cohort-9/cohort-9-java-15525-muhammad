@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/use-auth'
-import Navbar from './Navbar'
+import DashboardLayout from './DashboardLayout'
 
 export function ProtectedRoute() {
   const { isAuthenticated } = useAuth()
@@ -10,16 +10,7 @@ export function ProtectedRoute() {
     return <Navigate to="/login" replace state={{ from: location }} />
   }
 
-  return (
-    <div className="shell">
-      <Navbar />
-      <main className="page">
-        <div className="container">
-          <Outlet />
-        </div>
-      </main>
-    </div>
-  )
+  return <DashboardLayout />
 }
 
 export function GuestRoute() {
