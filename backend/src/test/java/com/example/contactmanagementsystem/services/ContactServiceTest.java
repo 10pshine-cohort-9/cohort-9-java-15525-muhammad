@@ -45,12 +45,20 @@ class ContactServiceTest {
 
     @Test
     void createContact_shouldSetUserAndSave() {
-        when(contactRepository.save(any(Contact.class))).thenReturn(contact);
+        when(contactRepository.save(any(Contact.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Contact result = contactService.createContact(new ContactRequest(), user);
 
         assertEquals(user, result.getUser());
         verify(contactRepository).save(any(Contact.class));
+    }
+
+    @Test
+    void createContact_shouldRejectNullUser() {
+        assertThrows(IllegalArgumentException.class,
+                () -> contactService.createContact(new ContactRequest(), null));
+
+        verify(contactRepository, never()).save(any(Contact.class));
     }
 
     @Test
