@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { getContacts } from '../api/contacts'
+import { getContactsPage } from '../api/contacts'
 import Alert from '../components/Alert'
 import { getApiError } from '../lib/errors'
+
+const PAGE_SIZE = 10
 
 function ContactRow({ contact }) {
   const fullName =
@@ -37,20 +39,36 @@ function ContactRow({ contact }) {
 }
 
 export default function ContactsPage() {
-  const [contacts, setContacts] = useState(null)
+  const [pageData, setPageData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const [page, setPage] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
     let active = true
 
     async function load() {
+      setLoading(true)
       try {
-        const data = await getContacts()
+        const data = await getContactsPage(page, PAGE_SIZE)
         if (!active) return
-        setContacts(data)
+
+        // Guard against stale page numbers: if the server returned an empty page
+        // but there are still contacts on earlier pages (totalPages > 0 and our
+        // page is at or beyond the new last page), clamp to the last valid page.
+        // This happens when contacts on the current page are deleted elsewhere.
+        if (
+          data.totalPages > 0 &&
+          data.content.length === 0 &&
+          page >= data.totalPages
+        ) {
+          setPage(data.totalPages - 1)
+          return   // Effect will re-run with the corrected page.
+        }
+
+        setPageData(data)
         setError(null)
       } catch (err) {
         if (!active) return
@@ -64,15 +82,23 @@ export default function ContactsPage() {
     return () => {
       active = false
     }
-  }, [reloadToken])
+  }, [page, reloadToken])
 
   function handleRetry() {
     setError(null)
-    setLoading(true)
     setReloadToken((value) => value + 1)
   }
 
-  const hasContacts = Array.isArray(contacts) && contacts.length > 0
+  function goTo(nextPage) {
+    if (nextPage < 0 || nextPage >= (pageData?.totalPages ?? 0)) return
+    setPage(nextPage)
+  }
+
+  const contacts = pageData?.content ?? []
+  const hasContacts = contacts.length > 0
+  const currentPage = pageData?.totalPages > 0 ? pageData.number + 1 : 0
+  const isFirst = pageData?.first ?? true
+  const isLast = pageData?.last ?? true
 
   return (
     <>
@@ -81,9 +107,10 @@ export default function ContactsPage() {
           <h1 className="page-title">Contacts</h1>
           <p className="page-desc">Browse all your saved contacts.</p>
         </div>
-        {Array.isArray(contacts) && (
+        {pageData && (
           <span className="badge">
-            {contacts.length} {contacts.length === 1 ? 'contact' : 'contacts'}
+            {pageData.totalElements}{' '}
+            {pageData.totalElements === 1 ? 'contact' : 'contacts'}
           </span>
         )}
       </div>
@@ -103,11 +130,35 @@ export default function ContactsPage() {
           <span>Loading contacts…</span>
         </div>
       ) : error ? null : hasContacts ? (
-        <ul className="card contact-list">
-          {contacts.map((contact) => (
-            <ContactRow key={contact.id} contact={contact} />
-          ))}
-        </ul>
+        <>
+          <ul className="card contact-list">
+            {contacts.map((contact) => (
+              <ContactRow key={contact.id} contact={contact} />
+            ))}
+          </ul>
+
+          <nav className="pagination" aria-label="Contact list pagination">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => goTo(page - 1)}
+              disabled={isFirst || pageData.totalPages <= 1}
+            >
+              Previous
+            </button>
+            <span className="pagination-status">
+              Page {currentPage} of {pageData.totalPages}
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => goTo(page + 1)}
+              disabled={isLast || pageData.totalPages <= 1}
+            >
+              Next
+            </button>
+          </nav>
+        </>
       ) : (
         <div className="empty-state">
           <span className="empty-state-icon" aria-hidden="true">
