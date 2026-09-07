@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
-import { getContactsPage, searchContacts } from '../api/contacts'
-import Alert from '../components/Alert'
-import { getApiError } from '../lib/errors'
+import { useEffect, useRef, useState } from "react";
+import { getContactsPage, searchContacts } from "../api/contacts";
+import Alert from "../components/Alert";
+import ContactFormModal from "../components/ContactFormModal";
+import DeleteContactModal from "../components/DeleteContactModal";
+import { getApiError } from "../lib/errors";
 
-const PAGE_SIZE = 10
-const SEARCH_DELAY = 300
+const PAGE_SIZE = 10;
+const SEARCH_DELAY = 300;
 
-function ContactRow({ contact }) {
+function ContactRow({ contact, onEdit, onDelete }) {
   const fullName =
     [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
     "Unnamed contact";
@@ -38,50 +40,77 @@ function ContactRow({ contact }) {
           ))}
         </div>
       )}
+      <div className="contact-row-actions">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => onEdit(contact)}
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm contact-delete-btn"
+          onClick={() => onDelete(contact)}
+        >
+          Delete
+        </button>
+      </div>
     </li>
   );
 }
 
 export default function ContactsPage() {
-  const [pageData, setPageData] = useState(null)
-  const [results, setResults] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [pageData, setPageData] = useState(null);
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const [page, setPage] = useState(0)
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [reloadToken, setReloadToken] = useState(0)
+  const [page, setPage] = useState(0);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
 
-  const searching = debouncedQuery.trim().length > 0
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState("create");
+  const [formContact, setFormContact] = useState(null);
+  // Increments on every modal open so ContactFormModal remounts with a fresh
+  // local state, discarding any previously dismissed, unsaved edits.
+  const [formSession, setFormSession] = useState(0);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteContact, setDeleteContact] = useState(null);
+  const [banner, setBanner] = useState(null);
+  const bannerTimerRef = useRef(null);
+
+  const searching = debouncedQuery.trim().length > 0;
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedQuery(query.trim())
+      setDebouncedQuery(query.trim());
 
       if (query.trim() && page !== 0) {
-        setPage(0)
+        setPage(0);
       }
-    }, SEARCH_DELAY)
+    }, SEARCH_DELAY);
 
-    return () => clearTimeout(timer)
-  }, [query, page])
+    return () => clearTimeout(timer);
+  }, [query, page]);
 
   useEffect(() => {
     let active = true;
 
     async function load() {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
       try {
         if (searching) {
-          const data = await searchContacts(debouncedQuery)
-          if (!active) return
-          setResults(data)
-          setPageData(null)
+          const data = await searchContacts(debouncedQuery);
+          if (!active) return;
+          setResults(data);
+          setPageData(null);
         } else {
-          const data = await getContactsPage(page, PAGE_SIZE)
-          if (!active) return
+          const data = await getContactsPage(page, PAGE_SIZE);
+          if (!active) return;
 
           // Guard against stale page numbers: if the server returned an empty
           // page but contacts still exist on earlier pages, clamp to the last
@@ -93,14 +122,13 @@ export default function ContactsPage() {
             data.content.length === 0 &&
             page >= data.totalPages
           ) {
-            setPage(data.totalPages - 1)
-            return   // Effect will re-run with the corrected page.
+            setPage(data.totalPages - 1);
+            return; // Effect will re-run with the corrected page.
           }
 
-          setPageData(data)
-          setResults(null)
+          setPageData(data);
+          setResults(null);
         }
-
       } catch (err) {
         if (!active) return;
         setError(getApiError(err));
@@ -111,16 +139,16 @@ export default function ContactsPage() {
 
     load();
     return () => {
-      active = false
-    }
-  }, [searching, debouncedQuery, page, reloadToken])
+      active = false;
+    };
+  }, [searching, debouncedQuery, page, reloadToken]);
 
   function handleQueryChange(event) {
-    setQuery(event.target.value)
+    setQuery(event.target.value);
   }
 
   function handleRetry() {
-    setReloadToken((value) => value + 1)
+    setReloadToken((value) => value + 1);
   }
 
   function goTo(nextPage) {
@@ -128,11 +156,68 @@ export default function ContactsPage() {
     setPage(nextPage);
   }
 
-  const contacts = searching ? (results ?? []) : (pageData?.content ?? [])
-  const hasContacts = contacts.length > 0
-  const currentPage = pageData?.totalPages > 0 ? pageData.number + 1 : 0
-  const isFirst = pageData?.first ?? true
-  const isLast = pageData?.last ?? true
+  function showBanner(message) {
+    setBanner(message);
+    if (bannerTimerRef.current) {
+      window.clearTimeout(bannerTimerRef.current);
+    }
+    bannerTimerRef.current = window.setTimeout(() => setBanner(null), 4000);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (bannerTimerRef.current) {
+        window.clearTimeout(bannerTimerRef.current);
+      }
+    };
+  }, []);
+
+  function handleOpenCreate() {
+    setFormMode("create");
+    setFormContact(null);
+    setFormSession((value) => value + 1);
+    setFormOpen(true);
+  }
+
+  function handleEdit(contact) {
+    setFormMode("edit");
+    setFormContact(contact);
+    setFormSession((value) => value + 1);
+    setFormOpen(true);
+  }
+
+  function handleDeleteClick(contact) {
+    setDeleteContact(contact);
+    setDeleteOpen(true);
+  }
+
+  function handleFormClosed() {
+    setFormOpen(false);
+  }
+
+  function handleFormSaved() {
+    setFormOpen(false);
+    setReloadToken((value) => value + 1);
+    showBanner("Contact saved.");
+  }
+
+  function handleDeleteClosed() {
+    setDeleteOpen(false);
+  }
+
+  function handleDeleteConfirmed() {
+    setDeleteOpen(false);
+    setDeleteContact(null);
+    setPage(0);
+    setReloadToken((value) => value + 1);
+    showBanner("Contact deleted.");
+  }
+
+  const contacts = searching ? (results ?? []) : (pageData?.content ?? []);
+  const hasContacts = contacts.length > 0;
+  const currentPage = pageData?.totalPages > 0 ? pageData.number + 1 : 0;
+  const isFirst = pageData?.first ?? true;
+  const isLast = pageData?.last ?? true;
 
   return (
     <>
@@ -160,7 +245,16 @@ export default function ContactsPage() {
             onChange={handleQueryChange}
           />
         </label>
+        <button type="button" className="btn btn-primary" onClick={handleOpenCreate}>
+          New contact
+        </button>
       </div>
+
+      {banner && (
+        <div className="banner-wrap">
+          <Alert variant="success">{banner}</Alert>
+        </div>
+      )}
 
       {error && (
         <div className="banner-wrap">
@@ -178,13 +272,18 @@ export default function ContactsPage() {
       {loading ? (
         <div className="loading-state" role="status">
           <span className="spinner" aria-hidden="true" />
-          <span>{searching ? 'Searching…' : 'Loading contacts…'}</span>
+          <span>{searching ? "Searching…" : "Loading contacts…"}</span>
         </div>
       ) : error ? null : hasContacts ? (
         <>
           <ul className="card contact-list">
             {contacts.map((contact) => (
-              <ContactRow key={contact.id} contact={contact} />
+              <ContactRow
+                key={contact.id}
+                contact={contact}
+                onEdit={handleEdit}
+                onDelete={handleDeleteClick}
+              />
             ))}
           </ul>
 
@@ -229,11 +328,25 @@ export default function ContactsPage() {
           </span>
           <h2 className="empty-state-title">No contacts yet</h2>
           <p className="empty-state-text">
-            Contacts you add will appear here. The create form is coming in the
-            next iteration.
+            Add your first contact with the “New contact” button above.
           </p>
         </div>
       )}
+
+      <ContactFormModal
+        key={formSession}
+        open={formOpen}
+        mode={formMode}
+        contact={formContact}
+        onClose={handleFormClosed}
+        onSaved={handleFormSaved}
+      />
+      <DeleteContactModal
+        open={deleteOpen}
+        contact={deleteContact}
+        onClose={handleDeleteClosed}
+        onDeleted={handleDeleteConfirmed}
+      />
     </>
   );
 }
